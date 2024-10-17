@@ -1,0 +1,177 @@
+(* Channel Definition *)
+free PrivateCh : channel [private].
+free BlockchainCh_KGC : channel [private].
+free BlockchainCh_DO : channel [private].
+free PublicCh : channel.
+
+(* Private Parameters *)
+free ssk_DO_CS : bitstring [private].
+free ssk_DU_DO : bitstring [private].
+free ssk_DU_CS : bitstring [private].
+free Data : bitstring [private].
+
+(* Public Parameters *)
+const Token_Success : bitstring.
+const Token_Address : bitstring.
+const G : bitstring.
+
+(* Functions *)
+fun H1(bitstring) : bitstring. 
+fun H2(bitstring, bitstring) : bitstring. 
+fun H3(bitstring, bitstring, bitstring) : bitstring.
+fun Concat2(bitstring, bitstring) : bitstring. 
+fun Concat3(bitstring, bitstring, bitstring) : bitstring.
+fun ECC(bitstring, bitstring) : bitstring. 
+fun ADD(bitstring, bitstring, bitstring) : bitstring. 
+fun SKE(bitstring, bitstring): bitstring.
+
+(* Destructors *)
+reduc forall m1 : bitstring, m2 : bitstring; SKD(SKE(m1, m2), m2) = m1.
+reduc forall m1 : bitstring, m2 : bitstring; Separate1_2(Concat2(m1, m2)) = m1.                        (* Separate the First Part *)
+reduc forall m1 : bitstring, m2 : bitstring; Separate2_2(Concat2(m1, m2)) = m2.                        (* Separate the Second Part *)
+reduc forall m1 : bitstring, m2 : bitstring, m3 : bitstring; Separate1_3(Concat3(m1, m2, m3)) = m1.    (* Separate the First Part *)
+reduc forall m1 : bitstring, m2 : bitstring, m3 : bitstring; Separate2_3(Concat3(m1, m2, m3)) = m2.    (* Separate the Second Part *)
+reduc forall m1 : bitstring, m2 : bitstring, m3 : bitstring; Separate3_3(Concat3(m1, m2, m3)) = m3.    (* Separate the Third Part *)
+
+(* Equations *)
+equation forall m1 : bitstring, m2 : bitstring; ECC(m1, ECC(m2, G)) = ECC(m2, ECC(m1, G)).
+
+(* queries *)
+query attacker (Data). 
+query ID : bitstring; inj-event (EndSession) ==> inj-event (InitiateSession).
+
+(* Events *)
+event InitiateSession.
+event EndSession.
+
+(* Key generation center 1 *)
+let pKGC1 =
+new ppk_KGC1 : bitstring;
+let pPK_KGC1 = ECC(ppk_KGC1, G) in
+out (BlockchainCh_KGC, pPK_KGC1);
+out (PrivateCh, ppk_KGC1);
+0.
+
+(* Key generation center 2 *)
+let pKGC2 =
+new ppk_KGC2 : bitstring;
+let pPK_KGC2 = ECC(ppk_KGC2, G) in
+out (BlockchainCh_KGC, pPK_KGC2);
+out (PrivateCh, ppk_KGC2);
+0.
+
+(* Key generation center 3 *)
+let pKGC3 =
+new ppk_KGC3 : bitstring;
+let pPK_KGC3 = ECC(ppk_KGC3, G) in
+out (BlockchainCh_KGC, pPK_KGC3);
+out (PrivateCh, ppk_KGC3);
+0.
+
+(* Smart contract *)
+let pSC =
+in (BlockchainCh_KGC, pPK_KGC1 : bitstring);
+in (BlockchainCh_KGC, pPK_KGC2 : bitstring);
+in (BlockchainCh_KGC, pPK_KGC3 : bitstring);
+let mPK = ADD(pPK_KGC1, pPK_KGC2, pPK_KGC3) in
+out (BlockchainCh_DO, mPK);
+0.
+
+(* Data user *)
+let pDU =
+new T_DU : bitstring;
+in (PrivateCh, ppk_KGC1 : bitstring);
+in (PrivateCh, ppk_KGC2 : bitstring);
+in (PrivateCh, ppk_KGC3 : bitstring);
+let mpk = ADD(ppk_KGC1, ppk_KGC2, ppk_KGC3) in
+
+event InitiateSession;
+let H_DU = H2(Token_Address, T_DU) in
+let E_DU = SKE(Concat2(Token_Address, H_DU), ssk_DU_DO) in
+out (PublicCh, (E_DU, T_DU));
+in (PublicCh, (xE3_DO : bitstring, xT2_DO : bitstring));
+let Temp1 = SKD(xE3_DO, ssk_DU_DO) in
+let xxAddr_Data = Separate1_2(Temp1) in
+let xH2_DO = Separate2_2(Temp1) in
+let xxH2_DO = H2(xxAddr_Data, xT2_DO) in
+if (xH2_DO = xxH2_DO) then
+let H2_DU = H2(xxAddr_Data, T_DU) in
+let E2_DU = SKE(Concat2(xxAddr_Data, H2_DU), ssk_DU_CS) in
+out (PublicCh, (E2_DU, T_DU));
+
+in (PublicCh, (xE2_CS : bitstring, xT2_CS : bitstring));
+let Temp2 = SKD(xE2_CS, ssk_DU_CS) in
+let xxE1_DO = Separate1_3(Temp2) in
+let xxR_DO = Separate2_3(Temp2) in
+let xH2_CS = Separate3_3(Temp2) in
+let xxH2_CS = H3(xxE1_DO, xxR_DO, xT2_CS) in
+if (xH2_CS = xxH2_CS) then
+let ak_DU = H1(ECC(mpk, xxR_DO)) in
+let Temp3 = SKD(xxE1_DO, ak_DU) in
+let xData = Separate1_2(Temp3) in
+let Data_Hash = Separate2_2(Temp3) in
+if (H1(xData) = Data_Hash) then
+event EndSession;
+0.
+
+(* Data owner *)
+let pDO =
+new r_DO : bitstring;
+new T_DO : bitstring;
+new T2_DO : bitstring;
+in (BlockchainCh_DO, mPK : bitstring);
+let R_DO = ECC(r_DO, G) in
+let ak_DO = H1(ECC(r_DO, mPK)) in
+let E1_DO = SKE(Concat2(Data, H1(Data)), ak_DO) in
+let H_DO = H3(E1_DO, R_DO, T_DO) in
+let E2_DO = SKE(Concat3(E1_DO, R_DO, H_DO), ssk_DO_CS) in
+out (PublicCh, (E2_DO, T_DO));
+in (PublicCh, (xToken_Success : bitstring, xE_CS : bitstring, xT_CS : bitstring));
+let Temp1 = SKD(xE_CS, ssk_DO_CS) in
+let xAddr_Data = Separate1_2(Temp1) in
+let xH_CS = Separate2_2(Temp1) in
+let xxH_CS = H3(xToken_Success, xAddr_Data, xT_CS) in
+if (xH_CS = xxH_CS) then
+
+in (PublicCh, (xE_DU : bitstring, xT_DU : bitstring));
+let Temp2 = SKD(xE_DU, ssk_DU_DO) in
+let xToken_Address = Separate1_2(Temp2) in
+let xH_DU = Separate2_2(Temp2) in
+let xxH_DU = H2(xToken_Address, xT_DU) in
+if (xH_DU = xxH_DU) then
+let H2_DO = H2(xAddr_Data, T2_DO) in
+let E3_DO = SKE(Concat2(xAddr_Data, H2_DO), ssk_DU_DO) in
+out (PublicCh, (E3_DO, T2_DO));
+0.
+
+(* Cloud server *)
+let pCS =
+new Addr_Data : bitstring;
+new T_CS : bitstring;
+new T2_CS : bitstring;
+in (PublicCh, (xE2_DO : bitstring, xT_DO : bitstring));
+let Temp1 = SKD(xE2_DO, ssk_DO_CS) in
+let xE1_DO = Separate1_3(Temp1) in
+let xR_DO = Separate2_3(Temp1) in
+let xH_DO = Separate3_3(Temp1) in
+out (PublicCh, (xE1_DO, xR_DO)); (* To check whether CS insider attacker can achieve data *)
+let xxH_DO = H3(xE1_DO, xR_DO, xT_DO) in
+if (xH_DO = xxH_DO) then
+let H_CS = H3(Token_Success, Addr_Data, T_CS) in
+let E_CS = SKE(Concat2(Addr_Data, H_CS), ssk_DO_CS) in
+out (PublicCh, (Token_Success, E_CS, T_CS));
+
+in (PublicCh, (xE2_DU : bitstring, xT_DU : bitstring));
+let Temp2 = SKD(xE2_DU, ssk_DU_CS) in
+let xAddr_Data = Separate1_2(Temp2) in
+let xH2_DU = Separate2_2(Temp2) in
+let xxH2_DU = H2(xAddr_Data, xT_DU) in
+if (xH2_DU = xxH2_DU) then
+if (xAddr_Data = Addr_Data) then
+let H2_CS = H3(xE1_DO, xR_DO, T2_CS) in
+let E2_CS = SKE(Concat3(xE1_DO, xR_DO, H2_CS), ssk_DU_CS) in
+out (PublicCh, (E2_CS, T2_CS));
+0.
+
+process
+  ((pKGC1) | (pKGC2) | (pKGC3) | (pSC) | (!pDU) | (!pDO) | (!pCS))
